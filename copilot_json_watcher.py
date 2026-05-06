@@ -108,7 +108,7 @@ def main():
     )
     parser.add_argument(
         "--log-pattern",
-        default="/home/alan/.copilot/logs/process-*.log",
+        default=f"/home/{os.getlogin()}/.copilot/logs/process-*.log",
         help="日志文件通配符，默认监听最新的 process-*.log。",
     )
     parser.add_argument(

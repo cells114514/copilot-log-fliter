@@ -1,0 +1,4 @@
+.vscode
+copilot_json_updates.jsonl
+.venv
+__pycache__
