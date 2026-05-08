@@ -1,0 +1,8 @@
+{
+    "function" : "idle_3.gif",
+    "function_call" : "busy.gif",
+    "custom" : "idle_1.gif",
+    "custom_tool_call" : "busy.gif",
+    "reasoning" : "idle_5.gif", 
+    "message" : "attention.gif"
+}
