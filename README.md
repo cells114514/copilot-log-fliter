@@ -3,13 +3,11 @@
 目前仅适配linux系统，后续会跟进适配Windows系统的更改
 # 快速开始
 在终端运行Copilot Cli：
-bash
 ```
 Copilot --log-level all
 ```
 
 运行本脚本：
-bash
 ```
 python copilot_json_watcher.py
 ```

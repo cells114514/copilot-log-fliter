@@ -74,7 +74,19 @@ def analyse_json_line(json_obj, window=None, gif_dict=None):
     """根据 JSON 对象的 type 字段分析正在进行的操作，并打印相关信息。"""
     type_str = json_obj.get("type", "")
     logging.info(f"捕获 JSON 类型: {type_str}")
-    window.change_gif(type_str, gif_dict)
+    # 确保对 Qt 对象的调用发生在 GUI 线程：优先使用 OverlayWindow.emit_change
+    if window is None:
+        return
+    try:
+        emit = getattr(window, "emit_change", None)
+        if callable(emit):
+            emit(type_str, gif_dict)
+        else:
+            # 回退到直接调用（在单线程或测试环境）
+            window.change_gif(type_str, gif_dict)
+    except RuntimeError:
+        # 如果 QObjects 已被删除或窗口正在关闭，忽略该事件
+        logging.debug("忽略已删除的 Qt 对象上的 change_gif 调用")
 
 
 def trim_file_to_last_n_lines(file_path: str, max_lines: int):
@@ -153,7 +165,7 @@ def main(window=None, stop_event: threading.Event = None):
     parser.add_argument(
         "--write-file",
         action="store_true",
-        default=False,
+        default=True,
         help="是否将捕获的 JSON 对象写入输出文件（默认 False）。",
     )
     args = parser.parse_args()
