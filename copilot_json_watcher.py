@@ -70,23 +70,26 @@ def pick_latest_file(pattern: str):
         return None
     return max(matches, key=os.path.getmtime)
 
-def analyse_json_line(json_obj, window=None, gif_dict=None):
-    """根据 JSON 对象的 type 字段分析正在进行的操作，并打印相关信息。"""
-    type_str = json_obj.get("type", "")
-    logging.info(f"捕获 JSON 类型: {type_str}")
+def analyse_json_line(new_type, last_type, window=None, gif_dict=None):
+    """根据 type 值触发 GIF 更新（GUI 更新由外部节流控制）。"""
+    new_type = new_type or ""
     # 确保对 Qt 对象的调用发生在 GUI 线程：优先使用 OverlayWindow.emit_change
     if window is None:
-        return
+        return new_type
     try:
         emit = getattr(window, "emit_change", None)
         if callable(emit):
-            emit(type_str, gif_dict)
+            # 后台日志线程统一通过信号请求 GUI 更新，避免跨线程直接操作 QMovie。
+            emit(new_type, gif_dict)
         else:
-            # 回退到直接调用（在单线程或测试环境）
-            window.change_gif(type_str, gif_dict)
+            # 仅在无信号封装时回退直接调用（例如单线程测试环境）。
+            window.change_gif(new_type, gif_dict)
+        return new_type
+
     except RuntimeError:
         # 如果 QObjects 已被删除或窗口正在关闭，忽略该事件
         logging.debug("忽略已删除的 Qt 对象上的 change_gif 调用")
+        return last_type
 
 
 def trim_file_to_last_n_lines(file_path: str, max_lines: int):
@@ -158,15 +161,20 @@ def main(window=None, stop_event: threading.Event = None):
         help="轮询间隔秒数。",
     )
     parser.add_argument(
+        "--update-interval",
+        type=float,
+        default=0.5,
+        help="图片最小更新间隔秒数（默认 0.5）。",
+    )
+    parser.add_argument(
         "--from-start",
         action="store_true",
         help="从日志文件开头开始读取（默认只读取新增内容）。",
     )
     parser.add_argument(
         "--write-file",
-        action="store_true",
-        default=True,
-        help="是否将捕获的 JSON 对象写入输出文件（默认 False）。",
+        default=False,
+        help="是否将捕获的 JSON 对象写入输出文件（默认 True）。",
     )
     args = parser.parse_args()
 
@@ -184,6 +192,10 @@ def main(window=None, stop_event: threading.Event = None):
 
     logging.info(f"[{now_iso()}] 监听中: {current_log_file}")
     logging.info(f"[{now_iso()}] 输出到: {args.output}")
+
+    last_emit_time = 0.0
+    last_type = None
+    pending_type = None
 
     try:
         while True:
@@ -218,10 +230,22 @@ def main(window=None, stop_event: threading.Event = None):
                             trim_file_to_last_n_lines(args.output, args.max_lines)
                         except Exception:
                             logging.exception("尝试修剪输出文件时失败")
-                        buffer = buffer[end:]
+                    # 无论是否写入文件，都要前进buffer
+                    buffer = buffer[end:]
 
-                    # 此处往后加入分析正在进行的操作
-                    analyse_json_line(obj, window, gif_dict)
+                    current_type = obj.get("type", "")
+                    logging.info(f"捕获 JSON 类型: {current_type}")
+
+                    # 持续记录最新的有效 type，供节流窗口到期时统一更新 GUI。
+                    if current_type:
+                        pending_type = current_type
+
+                    # 达到最小更新间隔时才触发一次 GUI 更新，避免高频切图。
+                    now = time.time()
+                    if pending_type and now - last_emit_time >= args.update_interval:
+                        last_type = analyse_json_line(pending_type, last_type, window, gif_dict)
+                        last_emit_time = now
+                        pending_type = None
             else:
                 try:
                     st = os.stat(current_log_file)
